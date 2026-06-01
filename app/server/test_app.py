@@ -1,106 +1,149 @@
-import unittest
-from unittest.mock import patch, MagicMock
-import json
-from app import app  # Changed from relative import to absolute import
-
-# filepath: app/server/test_app.py
-class TestApp(unittest.TestCase):
-    def setUp(self):
-        # Create a test client using Flask's test client
-        self.app = app.test_client()
-        self.app.testing = True
-        # Turn off database initialization for tests
-        app.config['TESTING'] = True
-        
-    def _create_mock_dog(self, dog_id, name, breed):
-        """Helper method to create a mock dog with standard attributes"""
-        dog = MagicMock(spec=['to_dict', 'id', 'name', 'breed'])
-        dog.id = dog_id
-        dog.name = name
-        dog.breed = breed
-        dog.to_dict.return_value = {'id': dog_id, 'name': name, 'breed': breed}
-        return dog
-        
-    def _setup_query_mock(self, mock_query, dogs):
-        """Helper method to configure the query mock"""
-        mock_query_instance = MagicMock()
-        mock_query.return_value = mock_query_instance
-        mock_query_instance.join.return_value = mock_query_instance
-        mock_query_instance.count.return_value = len(dogs)
-        mock_query_instance.offset.return_value = mock_query_instance
-        mock_query_instance.limit.return_value = mock_query_instance
-        mock_query_instance.all.return_value = dogs
-        return mock_query_instance
-
-    @patch('app.db.session.query')
-    def test_get_dogs_success(self, mock_query):
-        """Test successful retrieval of multiple dogs"""
-        # Arrange
-        dog1 = self._create_mock_dog(1, "Buddy", "Labrador")
-        dog2 = self._create_mock_dog(2, "Max", "German Shepherd")
-        mock_dogs = [dog1, dog2]
-        
-        self._setup_query_mock(mock_query, mock_dogs)
-        
-        # Act
-        response = self.app.get('/api/dogs')
-        
-        # Assert
-        self.assertEqual(response.status_code, 200)
-        
-        data = json.loads(response.data)
-        self.assertEqual(len(data['dogs']), 2)
-        self.assertEqual(data['page'], 1)
-        self.assertEqual(data['total'], 2)
-        
-        # Verify first dog
-        self.assertEqual(data['dogs'][0]['id'], 1)
-        self.assertEqual(data['dogs'][0]['name'], "Buddy")
-        self.assertEqual(data['dogs'][0]['breed'], "Labrador")
-        
-        # Verify second dog
-        self.assertEqual(data['dogs'][1]['id'], 2)
-        self.assertEqual(data['dogs'][1]['name'], "Max")
-        self.assertEqual(data['dogs'][1]['breed'], "German Shepherd")
-        
-        # Verify query was called
-        mock_query.assert_called_once()
-        
-    @patch('app.db.session.query')
-    def test_get_dogs_empty(self, mock_query):
-        """Test retrieval when no dogs are available"""
-        # Arrange
-        self._setup_query_mock(mock_query, [])
-        
-        # Act
-        response = self.app.get('/api/dogs')
-        
-        # Assert
-        self.assertEqual(response.status_code, 200)
-        data = json.loads(response.data)
-        self.assertEqual(data['dogs'], [])
-        self.assertEqual(data['total'], 0)
-        
-    @patch('app.db.session.query')
-    def test_get_dogs_structure(self, mock_query):
-        """Test the response structure for a single dog"""
-        # Arrange
-        dog = self._create_mock_dog(1, "Buddy", "Labrador")
-        self._setup_query_mock(mock_query, [dog])
-        
-        # Act
-        response = self.app.get('/api/dogs')
-        
-        # Assert
-        data = json.loads(response.data)
-        self.assertIn('dogs', data)
-        self.assertIn('page', data)
-        self.assertIn('total', data)
-        self.assertIn('total_pages', data)
-        self.assertTrue(isinstance(data['dogs'], list))
-        self.assertEqual(len(data['dogs']), 1)
-        self.assertEqual(set(data['dogs'][0].keys()), {'id', 'name', 'breed'})
+import pytest
+import os
+from app import app, db
+from models.dog import Dog, AdoptionStatus
+from models.breed import Breed
 
 
-if __name__ == '__main__':
-    unittest.main()
+@pytest.fixture
+def client():
+    """配置测试用 Flask 客户端，使用内存 SQLite 数据库"""
+    app.config['TESTING'] = True
+    app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
+
+    with app.app_context():
+        db.create_all()
+        _seed_test_data()
+        yield app.test_client()
+        db.session.remove()
+        db.drop_all()
+
+
+def _seed_test_data():
+    """插入测试用品种和狗狗数据"""
+    breed1 = Breed(name='Labrador')
+    breed2 = Breed(name='Poodle')
+    db.session.add_all([breed1, breed2])
+    db.session.flush()
+
+    dog1 = Dog(name='Buddy', breed_id=breed1.id, age=3, gender='Male',
+               description='A friendly and energetic dog.', status=AdoptionStatus.AVAILABLE)
+    dog2 = Dog(name='Bella', breed_id=breed2.id, age=5, gender='Female',
+               description='A calm and gentle companion.', status=AdoptionStatus.ADOPTED)
+    dog3 = Dog(name='Max', breed_id=breed1.id, age=2, gender='Male',
+               description='A playful and loyal friend.', status=AdoptionStatus.PENDING)
+    db.session.add_all([dog1, dog2, dog3])
+    db.session.commit()
+
+
+# ---------------------------------------------------------------------------
+# GET /api/dogs
+# ---------------------------------------------------------------------------
+
+class TestGetDogs:
+    def test_returns_200(self, client):
+        response = client.get('/api/dogs')
+        assert response.status_code == 200
+
+    def test_response_contains_required_keys(self, client):
+        data = client.get('/api/dogs').get_json()
+        assert 'dogs' in data
+        assert 'page' in data
+        assert 'per_page' in data
+        assert 'total' in data
+        assert 'total_pages' in data
+
+    def test_default_pagination(self, client):
+        data = client.get('/api/dogs').get_json()
+        assert data['page'] == 1
+        assert data['per_page'] == 6
+        assert data['total'] == 3
+
+    def test_custom_per_page(self, client):
+        data = client.get('/api/dogs?per_page=2').get_json()
+        assert data['per_page'] == 2
+        assert len(data['dogs']) == 2
+        assert data['total_pages'] == 2
+
+    def test_page_2(self, client):
+        data = client.get('/api/dogs?per_page=2&page=2').get_json()
+        assert data['page'] == 2
+        assert len(data['dogs']) == 1
+
+    def test_per_page_capped_at_100(self, client):
+        data = client.get('/api/dogs?per_page=999').get_json()
+        assert data['per_page'] == 100
+
+    def test_page_minimum_is_1(self, client):
+        data = client.get('/api/dogs?page=0').get_json()
+        assert data['page'] == 1
+
+    def test_dog_item_has_required_fields(self, client):
+        dog = client.get('/api/dogs').get_json()['dogs'][0]
+        assert 'id' in dog
+        assert 'name' in dog
+        assert 'breed' in dog
+
+
+# ---------------------------------------------------------------------------
+# GET /api/dogs/<id>
+# ---------------------------------------------------------------------------
+
+class TestGetDogById:
+    def test_returns_200_for_existing_dog(self, client):
+        dog_id = db.session.query(Dog).first().id
+        response = client.get(f'/api/dogs/{dog_id}')
+        assert response.status_code == 200
+
+    def test_returns_correct_dog(self, client):
+        dog_id = db.session.query(Dog).filter_by(name='Buddy').first().id
+        data = client.get(f'/api/dogs/{dog_id}').get_json()
+        assert data['name'] == 'Buddy'
+        assert data['breed'] == 'Labrador'
+        assert data['gender'] == 'Male'
+
+    def test_response_has_all_fields(self, client):
+        dog_id = db.session.query(Dog).first().id
+        data = client.get(f'/api/dogs/{dog_id}').get_json()
+        for field in ('id', 'name', 'breed', 'age', 'description', 'gender', 'status'):
+            assert field in data
+
+    def test_status_is_string(self, client):
+        dog_id = db.session.query(Dog).filter_by(name='Buddy').first().id
+        data = client.get(f'/api/dogs/{dog_id}').get_json()
+        assert data['status'] == 'AVAILABLE'
+
+    def test_returns_404_for_missing_dog(self, client):
+        response = client.get('/api/dogs/99999')
+        assert response.status_code == 404
+
+    def test_404_response_has_error_key(self, client):
+        data = client.get('/api/dogs/99999').get_json()
+        assert 'error' in data
+
+
+# ---------------------------------------------------------------------------
+# GET /api/breeds
+# ---------------------------------------------------------------------------
+
+class TestGetBreeds:
+    def test_returns_200(self, client):
+        response = client.get('/api/breeds')
+        assert response.status_code == 200
+
+    def test_response_contains_breeds_key(self, client):
+        data = client.get('/api/breeds').get_json()
+        assert 'breeds' in data
+
+    def test_returns_all_breeds(self, client):
+        data = client.get('/api/breeds').get_json()
+        assert len(data['breeds']) == 2
+
+    def test_breed_item_has_id_and_name(self, client):
+        breed = client.get('/api/breeds').get_json()['breeds'][0]
+        assert 'id' in breed
+        assert 'name' in breed
+
+    def test_breed_names_are_correct(self, client):
+        names = {b['name'] for b in client.get('/api/breeds').get_json()['breeds']}
+        assert names == {'Labrador', 'Poodle'}
