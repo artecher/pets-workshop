@@ -12,6 +12,7 @@ def client():
     app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///:memory:'
 
     with app.app_context():
+        db.drop_all()
         db.create_all()
         _seed_test_data()
         yield app.test_client()
