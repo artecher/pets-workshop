@@ -142,19 +142,24 @@ try {
 </Layout>
 
 <script>
-  // Auto-refresh when filters change
   const breedFilter = document.getElementById('breed-filter') as HTMLSelectElement;
   const availableFilter = document.getElementById('available-filter') as HTMLInputElement;
 
+  function syncFiltersFromUrl() {
+    const params = new URLSearchParams(window.location.search);
+    breedFilter.value = params.get('breed') || '';
+    availableFilter.checked = params.get('available') === 'true';
+  }
+
   function updateFilters() {
     const params = new URLSearchParams();
-    
+
     // 保留当前页码
     const currentPage = new URLSearchParams(window.location.search).get('page');
     if (currentPage) {
       params.append('page', currentPage);
     }
-    
+
     if (breedFilter.value) {
       params.append('breed', breedFilter.value);
     }
@@ -163,6 +168,13 @@ try {
     }
     window.location.href = `/?${params.toString()}`;
   }
+
+  // 从 bfcache 恢复时（浏览器返回键），重新同步过滤器状态
+  window.addEventListener('pageshow', (event) => {
+    if (event.persisted) {
+      syncFiltersFromUrl();
+    }
+  });
 
   breedFilter?.addEventListener('change', updateFilters);
   availableFilter?.addEventListener('change', updateFilters);
