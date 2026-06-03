@@ -85,6 +85,31 @@ class TestGetDogs:
         assert 'name' in dog
         assert 'breed' in dog
 
+    def test_filter_by_breed(self, client):
+        """品种过滤应只返回指定品种的狗"""
+        data = client.get('/api/dogs?breed=Labrador').get_json()
+        assert len(data['dogs']) == 2  # Buddy and Max
+        assert all(dog['breed'] == 'Labrador' for dog in data['dogs'])
+
+    def test_filter_by_available_only(self, client):
+        """available=true 过滤应只返回 AVAILABLE 状态的狗"""
+        data = client.get('/api/dogs?available=true').get_json()
+        assert len(data['dogs']) == 1  # Only Buddy
+        assert data['dogs'][0]['name'] == 'Buddy'
+
+    def test_filter_by_breed_and_available(self, client):
+        """同时过滤品种和可用性应返回满足两个条件的狗"""
+        data = client.get('/api/dogs?breed=Labrador&available=true').get_json()
+        assert len(data['dogs']) == 1
+        assert data['dogs'][0]['name'] == 'Buddy'
+        assert data['dogs'][0]['breed'] == 'Labrador'
+
+    def test_filter_nonexistent_breed(self, client):
+        """不存在的品种过滤应返回空列表"""
+        data = client.get('/api/dogs?breed=GoldenRetriever').get_json()
+        assert len(data['dogs']) == 0
+        assert data['total'] == 0
+
 
 # ---------------------------------------------------------------------------
 # GET /api/dogs/<id>
@@ -148,3 +173,8 @@ class TestGetBreeds:
     def test_breed_names_are_correct(self, client):
         names = {b['name'] for b in client.get('/api/breeds').get_json()['breeds']}
         assert names == {'Labrador', 'Poodle'}
+
+    def test_breed_items_ordered_by_id(self, client):
+        """品种应按 ID 排序"""
+        breeds = client.get('/api/breeds').get_json()['breeds']
+        assert breeds[0]['id'] < breeds[1]['id']
