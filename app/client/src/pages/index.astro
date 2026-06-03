@@ -149,6 +149,15 @@ try {
     const params = new URLSearchParams(window.location.search);
     breedFilter.value = params.get('breed') || '';
     availableFilter.checked = params.get('available') === 'true';
+    saveFiltersToLocalStorage();
+  }
+
+  function saveFiltersToLocalStorage() {
+    const filters = {
+      breed: breedFilter.value,
+      available: availableFilter.checked,
+    };
+    localStorage.setItem('dogFilters', JSON.stringify(filters));
   }
 
   function updateFilters() {
@@ -166,6 +175,8 @@ try {
     if (availableFilter.checked) {
       params.append('available', 'true');
     }
+    
+    saveFiltersToLocalStorage();
     window.location.href = `/?${params.toString()}`;
   }
 
@@ -175,6 +186,9 @@ try {
       syncFiltersFromUrl();
     }
   });
+
+  // 初始化时也同步一次
+  syncFiltersFromUrl();
 
   breedFilter?.addEventListener('change', updateFilters);
   availableFilter?.addEventListener('change', updateFilters);

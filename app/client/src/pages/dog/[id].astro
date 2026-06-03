@@ -39,7 +39,7 @@ try {
     )}
 
     <div class="mt-8">
-      <a href="/" data-testid="back-link" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-300 inline-flex items-center">
+      <a href="/" id="back-link" data-testid="back-link" class="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-all duration-300 inline-flex items-center">
         <svg xmlns="http://www.w3.org/2000/svg" class="h-5 w-5 mr-2" viewBox="0 0 20 20" fill="currentColor">
           <path fill-rule="evenodd" d="M9.707 16.707a1 1 0 01-1.414 0l-6-6a1 1 0 010-1.414l6-6a1 1 0 011.414 1.414L5.414 9H17a1 1 0 110 2H5.414l4.293 4.293a1 1 0 010 1.414z" clip-rule="evenodd" />
         </svg>
@@ -48,3 +48,20 @@ try {
     </div>
   </div>
 </Layout>
+
+<script>
+  const backLink = document.getElementById('back-link') as HTMLAnchorElement;
+  if (backLink) {
+    const filters = JSON.parse(localStorage.getItem('dogFilters') || '{}');
+    const params = new URLSearchParams();
+    
+    if (filters.breed) {
+      params.append('breed', filters.breed);
+    }
+    if (filters.available) {
+      params.append('available', 'true');
+    }
+    
+    backLink.href = params.toString() ? `/?${params.toString()}` : '/';
+  }
+</script>
